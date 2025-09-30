@@ -10,26 +10,40 @@ class VoskWorker(QObject):
     textRecognized = pyqtSignal(str)
     modelReady = pyqtSignal(bool,str)
 
-    def __init__(self, model_path):
+    def __init__(self, model_path, keybindings_path):
         super().__init__()
         self.model_path = model_path
+        self.keybindings_path = keybindings_path
         self.model = None
         self.recognizer = None
         self.stream = None
         self.is_listening = False
         
+        self.can_guess = True
+        
 
     @pyqtSlot()
     def initialize(self):
         """Loads the model. This is called once when the thread starts."""
+        data = None
+        try:
+            with open(self.keybindings_path,'r') as f:
+                data = json.load(f)
+        except FileNotFoundError:
+            print('keybinds.json not found')
+        except json.JSONDecodeError:
+            print("Error: Invalid JSON format in 'keybindings.json'.")
+        
         try:
             print("Loading Vosk model...")
             
-            macro_commands = [
-                "jump", "reload", "crouch", "sprint", 
-                "next weapon", "previous weapon", "use item", 
-                "save", "load", "hello", "boo"
-            ]
+            
+            macro_commands = []
+            for word in data:
+                if isinstance(word,str):
+                    macro_commands.append(word)
+                    print('adding '+word)
+            
             
             self.model = Model(self.model_path,lang="en-us")
             self.recognizer = KaldiRecognizer(self.model, 16000,json.dumps(macro_commands))
@@ -50,6 +64,7 @@ class VoskWorker(QObject):
         if self.is_listening and self.recognizer:
             if self.recognizer.AcceptWaveform(bytes(indata)):
                 result_json = json.loads(self.recognizer.Result())
+                print(f"Final result: {result_json}")
                 if 'result' in result_json:
                     words = result_json['result']
                     
@@ -63,11 +78,19 @@ class VoskWorker(QObject):
                     print(f"'{text}' (Confidence: {average_confidence:.2f})")
                     
                     # Only emit the signal if confidence is high enough
-                    if average_confidence >= CONFIDENCE_THRESHOLD:
+                    if average_confidence >= CONFIDENCE_THRESHOLD and self.can_guess:
                         self.textRecognized.emit(text)
-                    else:
-                        # Optional: let the user know it was ignored
-                        print(f"--> Ignored due to low confidence.")
+                    self.can_guess = True
+            else:
+                partial_result_json = json.loads(self.recognizer.PartialResult())
+                
+                if partial_result_json.get('partial'):
+                    text = partial_result_json['partial']
+                    print(f"Partial result: {text}")
+                    
+                    if self.can_guess:
+                        self.textRecognized.emit(text)
+                        self.can_guess = False
 
 
     @pyqtSlot()
@@ -96,4 +119,5 @@ class VoskWorker(QObject):
         if self.stream:
             self.stream.stop()
             self.stream.close()
+            self.stream = None
         self.is_listening = False

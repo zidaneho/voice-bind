@@ -5,8 +5,43 @@ from PyQt6.QtWidgets import QApplication, QMainWindow, QLabel, QPushButton, QVBo
 from PyQt6.QtCore import QThread, QObject, pyqtSignal, pyqtSlot
 from vosk import Model, KaldiRecognizer
 from src.VoskWorker import VoskWorker
+import pyautogui as pag
 
 
+keybindingsJsonPath = "keybindings.json"
+
+# Maps the string from gui.py to the object required by the 'pynput' library
+keybinds_to_pyauto = {
+    "Ctrl": "ctrl",
+    "Alt": "alt",
+    "Shift": "shift",
+    "Cmd": "command",   # macOS command key
+    "Enter": "enter",
+    "Tab": "tab",
+    "Backspace": "backspace",
+    "Space": "space",
+    "Esc": "esc",
+    "Up": "up",
+    "Down": "down",
+    "Left": "left",
+    "Right": "right",
+    "Delete": "delete",
+    "Home": "home",
+    "End": "end",
+    "PageUp": "pageup",
+    "PageDown": "pagedown",
+    # function keys (add as needed)
+    "F1": "f1", "F2": "f2", "F3": "f3", "F4": "f4", "F5": "f5",
+    "F6": "f6", "F7": "f7", "F8": "f8", "F9": "f9", "F10": "f10",
+    "F11": "f11", "F12": "f12",
+}
+
+# Mouse button mapping (PyAutoGUI only supports left/right/middle)
+keybinds_to_mouse_pyauto = {
+    "LMB": "left",
+    "RMB": "right",
+    "MMB": "middle",
+}
 
 
 # --- Main Application Window ---
@@ -17,6 +52,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
+       
         self.setWindowTitle("Vosk Speech Recognition (Efficient)")
         self.setGeometry(100, 100, 400, 200)
 
@@ -38,7 +74,7 @@ class MainWindow(QMainWindow):
         # --- Vosk Thread Setup ---
         model_path = "./vosk-model-small-en-us-0.15"  # CHANGE THIS PATH
         self.vosk_thread = QThread()
-        self.vosk_worker = VoskWorker(model_path)
+        self.vosk_worker = VoskWorker(model_path, keybindings_path=keybindingsJsonPath)
         self.vosk_worker.moveToThread(self.vosk_thread)
         
         
@@ -56,11 +92,12 @@ class MainWindow(QMainWindow):
 
         # 3. Connect signal from worker to update GUI
         self.vosk_worker.textRecognized.connect(self.update_label)
-
+     
         # 4. Connect the button toggle to our handler
         self.button.toggled.connect(self.toggle_listening)
         
         self.vosk_worker.modelReady.connect(self.on_model_ready)
+        self.vosk_worker.textRecognized.connect(self.play_key)
         
         # Start the thread. It will now run for the lifetime of the app.
         self.vosk_thread.start()
@@ -81,6 +118,47 @@ class MainWindow(QMainWindow):
         if "Model loaded successfully" in text or "Error" not in text and not self.button.isEnabled():
             self.button.setEnabled(True)
             self.label.setText("Press 'Start Listening' to begin.")
+    @pyqtSlot(str)
+    def play_key(self, text):
+        """Looks up the voice command and simulates the corresponding key/mouse action using pyautogui."""
+        try:
+            with open(keybindingsJsonPath, 'r') as f:
+                data = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            print(f"Error loading keybindings.json: {e}")
+            return
+
+        if not data:
+            return
+
+        action = data.get(text)  # e.g., "LMB", "Enter", "Ctrl+S", "a"
+        if action is None:
+            print(f"No key associated with '{text}'")
+            return
+
+        print(f"Voice command '{text}' -> action '{action}'")
+
+        # Mouse?
+        if action in keybinds_to_mouse_pyauto:
+            btn = keybinds_to_mouse_pyauto[action]
+            print(f"-> Mouse click: {btn}")
+            pag.click(button=btn)
+            return
+
+        # Key chord? e.g., "Ctrl+S" or "Cmd+Shift+3"
+        if "+" in action:
+            parts_raw = [p.strip() for p in action.split("+")]
+            parts = []
+            for p in parts_raw:
+                parts.append(keybinds_to_pyauto.get(p, p.lower()))  # map known names else lowercase
+            print(f"-> Hotkey: {parts}")
+            pag.hotkey(*parts)
+            return
+
+        # Single key (special or character)
+        keyname = keybinds_to_pyauto.get(action, action.lower())
+        print(f"-> Key press: {keyname}")
+        pag.press(keyname)
     @pyqtSlot(str)
     def add_text_to_log(self, text):
         """Appends recognized text to the log box."""
@@ -107,9 +185,11 @@ class MainWindow(QMainWindow):
             self.label.setText("Stopped. Press 'Start Listening' to begin.")
             self.button.setText("Start Listening")
             self.request_stop.emit() # Emit signal to stop
+   
 
     def closeEvent(self, event):
         """Ensure the thread is stopped cleanly."""
+        self.vosk_worker.stop_listening()
         self.vosk_thread.quit()
         self.vosk_thread.wait()
         event.accept()
