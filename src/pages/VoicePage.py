@@ -1,14 +1,9 @@
-import sys
-import json
-import sounddevice as sd
-from PyQt6.QtWidgets import QApplication, QMainWindow, QLabel, QPushButton, QVBoxLayout, QWidget, QTextEdit
-from PyQt6.QtCore import QThread, QObject, pyqtSignal, pyqtSlot
-from vosk import Model, KaldiRecognizer
-from src.VoskWorker import VoskWorker
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QTextEdit
+from PyQt6.QtCore import QThread, pyqtSignal, pyqtSlot
+from VoskWorker import VoskWorker
+from util import keybindingsJsonPath
 import pyautogui as pag
-
-
-keybindingsJsonPath = "keybindings.json"
+import json
 
 # Maps the string from gui.py to the object required by the 'pynput' library
 keybinds_to_pyauto = {
@@ -43,63 +38,44 @@ keybinds_to_mouse_pyauto = {
     "MMB": "middle",
 }
 
-
-# --- Main Application Window ---
-class MainWindow(QMainWindow):
-    # Signals to communicate with the worker thread
+class VoicePage(QWidget):
     request_start = pyqtSignal()
     request_stop = pyqtSignal()
 
     def __init__(self):
         super().__init__()
-       
-        self.setWindowTitle("Vosk Speech Recognition (Efficient)")
-        self.setGeometry(100, 100, 400, 200)
-
+        
         self.label = QLabel("Model is loading or not yet started...", self)
         self.button = QPushButton("Start Listening", self)
         self.button.setCheckable(True)
         self.button.setEnabled(False) # Disable button until model is loaded
         self.log_box = QTextEdit(self)
         self.log_box.setReadOnly(True)
-        
+
         layout = QVBoxLayout()
         layout.addWidget(self.label)
         layout.addWidget(self.log_box)
         layout.addWidget(self.button)
-        container = QWidget()
-        container.setLayout(layout)
-        self.setCentralWidget(container)
+        self.setLayout(layout)
 
         # --- Vosk Thread Setup ---
         model_path = "./vosk-model-small-en-us-0.15"  # CHANGE THIS PATH
         self.vosk_thread = QThread()
         self.vosk_worker = VoskWorker(model_path, keybindings_path=keybindingsJsonPath)
         self.vosk_worker.moveToThread(self.vosk_thread)
-        
-        
 
         # --- Connections ---
-        # 1. Initialize the worker when the thread starts
         self.vosk_thread.started.connect(self.vosk_worker.initialize)
-        
+        self.vosk_worker.modelReady.connect(self.on_model_ready)
         self.vosk_worker.textRecognized.connect(self.update_label)
         self.vosk_worker.textRecognized.connect(self.add_text_to_log)
+        self.vosk_worker.textRecognized.connect(self.play_key)
 
-        # 2. Connect signals from main thread to worker's slots
         self.request_start.connect(self.vosk_worker.start_listening)
         self.request_stop.connect(self.vosk_worker.stop_listening)
 
-        # 3. Connect signal from worker to update GUI
-        self.vosk_worker.textRecognized.connect(self.update_label)
-     
-        # 4. Connect the button toggle to our handler
         self.button.toggled.connect(self.toggle_listening)
-        
-        self.vosk_worker.modelReady.connect(self.on_model_ready)
-        self.vosk_worker.textRecognized.connect(self.play_key)
-        
-        # Start the thread. It will now run for the lifetime of the app.
+
         self.vosk_thread.start()
 
     @pyqtSlot(str)
@@ -113,7 +89,7 @@ class MainWindow(QMainWindow):
                  self.label.setText(text.capitalize())
             else:
                  self.label.setText(f"{current_text} {text}")
-        
+
         # Once the model is loaded, enable the button
         if "Model loaded successfully" in text or "Error" not in text and not self.button.isEnabled():
             self.button.setEnabled(True)
@@ -185,7 +161,7 @@ class MainWindow(QMainWindow):
             self.label.setText("Stopped. Press 'Start Listening' to begin.")
             self.button.setText("Start Listening")
             self.request_stop.emit() # Emit signal to stop
-   
+
 
     def closeEvent(self, event):
         """Ensure the thread is stopped cleanly."""
@@ -193,10 +169,3 @@ class MainWindow(QMainWindow):
         self.vosk_thread.quit()
         self.vosk_thread.wait()
         event.accept()
-
-# --- Run the Application ---
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = MainWindow()
-    window.show()
-    sys.exit(app.exec())

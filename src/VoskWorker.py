@@ -6,6 +6,8 @@ from PyQt6.QtCore import QThread, QObject, pyqtSignal, pyqtSlot
 from vosk import Model, KaldiRecognizer
 
 
+
+
 class VoskWorker(QObject):
     textRecognized = pyqtSignal(str)
     modelReady = pyqtSignal(bool,str)

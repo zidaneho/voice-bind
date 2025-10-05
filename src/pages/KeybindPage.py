@@ -16,10 +16,21 @@ os.makedirs(user_data_dir, exist_ok=True) # Ensure the directory exists
 keybindingsJsonPath = os.path.join(user_data_dir, "keybindings.json")
 
 
-class KeybindMenu(QWidget):
-    def __init__(self, key_bindings):
+class KeybindPage(QWidget):
+    def __init__(self):
         super().__init__()
-        self.key_bindings = key_bindings
+        
+        try:
+            with open(keybindingsJsonPath,'r') as f:
+                self.key_bindings = json.load(f)
+        except FileNotFoundError:
+            print('keybinds.json not found, creating a new one.')
+            with open(keybindingsJsonPath, 'w') as f:
+                json.dump({}, f)
+            self.key_bindings = {}
+        except json.JSONDecodeError:
+            print("Error: Invalid JSON format in 'keybindings.json'.")
+            self.key_bindings = {}
         self.setWindowTitle("Keybind Menu")
         self.setLayout(QVBoxLayout())
 
@@ -160,19 +171,3 @@ class KeybindMenu(QWidget):
             if self.key_bindings and command_to_remove in self.key_bindings:
                 del self.key_bindings[command_to_remove]
                 self.refresh_table()
-
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    data = None
-    try:
-        with open(keybindingsJsonPath,'r') as f:
-            data = json.load(f)
-    except FileNotFoundError:
-        print('keybinds.json not found, creating a new one.')
-        with open(keybindingsJsonPath, 'w') as f:
-            json.dump({}, f)
-    except json.JSONDecodeError:
-         print("Error: Invalid JSON format in 'keybindings.json'.")
-    window = KeybindMenu(data)
-    window.show()
-    sys.exit(app.exec())
