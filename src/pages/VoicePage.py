@@ -60,7 +60,7 @@ class VoicePage(QWidget):
         self.setLayout(layout)
 
         # --- Vosk Thread Setup ---
-        model_path = "./vosk-model-small-en-us-0.15"  # CHANGE THIS PATH
+        model_path = "./vosk-model-en-us-0.22-lgraph"  # CHANGE THIS PATH
         self.vosk_thread = QThread()
         self.vosk_worker = VoskWorker(model_path)
         self.vosk_worker.moveToThread(self.vosk_thread)

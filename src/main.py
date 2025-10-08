@@ -4,9 +4,10 @@ from PyQt6.QtWidgets import (
     QVBoxLayout, QWidget, QLabel
 )
 from components.NavMenu import NavMenu
-# 1. Import your actual page classes
+# Import your actual page classes
 from pages.VoicePage import VoicePage
 from pages.KeybindPage import KeybindPage
+from pages.SettingsPage import SettingsPage # Import the new SettingsPage
 from util import settingsJsonPath
 from components.ProfileManager import ProfileManager
 from datetime import datetime
@@ -24,17 +25,17 @@ class MainWindow(QMainWindow):
         self.stacked_widget = QStackedWidget()
     
 
-        # 2. Instantiate your pages
+        # Instantiate your pages
         self.voice_page = VoicePage(self.profile_manager)
         self.keybind_page = KeybindPage(self.profile_manager)
+        # Pass the vosk_worker from the voice_page to the settings_page
+        self.settings_page = SettingsPage(self.voice_page.vosk_worker)
 
-        # 3. Create the pages dictionary with your real widgets
-        #    The keys ("home", "keybinds", "settings") MUST match the
-        #    identifiers used in your NavMenu class.
+        # Create the pages dictionary with your real widgets
         self.pages = {
             "home": self.voice_page,
             "keybinds": self.keybind_page,
-            "settings": QLabel("This is the SETTINGS Page (Not Implemented)")
+            "settings": self.settings_page # Use the new SettingsPage instance
         }
         for page_widget in self.pages.values():
             self.stacked_widget.addWidget(page_widget)
