@@ -12,10 +12,9 @@ class VoskWorker(QObject):
     textRecognized = pyqtSignal(str)
     modelReady = pyqtSignal(bool,str)
 
-    def __init__(self, model_path, keybindings_path):
+    def __init__(self, model_path):
         super().__init__()
         self.model_path = model_path
-        self.keybindings_path = keybindings_path
         self.model = None
         self.recognizer = None
         self.stream = None
@@ -24,37 +23,31 @@ class VoskWorker(QObject):
         self.can_guess = True
         
 
-    @pyqtSlot()
-    def initialize(self):
+    @pyqtSlot(dict)
+    def initialize(self, keybindings : dict):
         """Loads the model. This is called once when the thread starts."""
-        data = None
-        try:
-            with open(self.keybindings_path,'r') as f:
-                data = json.load(f)
-        except FileNotFoundError:
-            print('keybinds.json not found')
-        except json.JSONDecodeError:
-            print("Error: Invalid JSON format in 'keybindings.json'.")
+    
         
         try:
-            print("Loading Vosk model...")
+            print("Loading Vosk model and setting grammar...")
+            macro_commands = list(keybindings.keys())
             
-            
-            macro_commands = []
-            for word in data:
-                if isinstance(word,str):
-                    macro_commands.append(word)
-                    print('adding '+word)
-            
-            
-            self.model = Model(self.model_path,lang="en-us")
-            self.recognizer = KaldiRecognizer(self.model, 16000,json.dumps(macro_commands))
+            # --- This is the crucial fix ---
+            # Only load the heavy model from disk if it hasn't been loaded before.
+            if not self.model:
+                self.model = Model(self.model_path, lang="en-us")
+
+            # This part is lightweight and can be run every time to update the grammar.
+            if len(macro_commands) > 0:
+                self.recognizer = KaldiRecognizer(self.model, 16000,json.dumps(macro_commands))
+            else:
+                self.recognizer = KaldiRecognizer(self.model,16000)
             self.recognizer.SetWords(True)
-            self.modelReady.emit(True,"Model loaded successfully")
-            
+            self.modelReady.emit(True, "Model loaded successfully with current profile.")
             
         except Exception as e:
-            self.textRecognized.emit(f"Error loading model: {e}")
+            # Emit modelReady signal on failure to update the UI correctly
+            self.modelReady.emit(False, f"Error loading model: {e}")
 
     def audio_callback(self, indata, frames, time, status):
         """This is called by sounddevice for each audio chunk."""

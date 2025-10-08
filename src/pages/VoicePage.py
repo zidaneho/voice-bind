@@ -42,8 +42,9 @@ class VoicePage(QWidget):
     request_start = pyqtSignal()
     request_stop = pyqtSignal()
 
-    def __init__(self):
+    def __init__(self, profile_manager):
         super().__init__()
+        self.profile_manager = profile_manager
         
         self.label = QLabel("Model is loading or not yet started...", self)
         self.button = QPushButton("Start Listening", self)
@@ -61,15 +62,17 @@ class VoicePage(QWidget):
         # --- Vosk Thread Setup ---
         model_path = "./vosk-model-small-en-us-0.15"  # CHANGE THIS PATH
         self.vosk_thread = QThread()
-        self.vosk_worker = VoskWorker(model_path, keybindings_path=keybindingsJsonPath)
+        self.vosk_worker = VoskWorker(model_path)
         self.vosk_worker.moveToThread(self.vosk_thread)
 
         # --- Connections ---
-        self.vosk_thread.started.connect(self.vosk_worker.initialize)
+        self.vosk_thread.started.connect(self.initialize_worker)
         self.vosk_worker.modelReady.connect(self.on_model_ready)
         self.vosk_worker.textRecognized.connect(self.update_label)
         self.vosk_worker.textRecognized.connect(self.add_text_to_log)
         self.vosk_worker.textRecognized.connect(self.play_key)
+        
+        self.profile_manager.profileChanged.connect(self.on_profile_changed)
 
         self.request_start.connect(self.vosk_worker.start_listening)
         self.request_stop.connect(self.vosk_worker.stop_listening)
@@ -97,13 +100,7 @@ class VoicePage(QWidget):
     @pyqtSlot(str)
     def play_key(self, text):
         """Looks up the voice command and simulates the corresponding key/mouse action using pyautogui."""
-        try:
-            with open(keybindingsJsonPath, 'r') as f:
-                data = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError) as e:
-            print(f"Error loading keybindings.json: {e}")
-            return
-
+        data = self.profile_manager.get_keybindings()
         if not data:
             return
 
@@ -149,6 +146,19 @@ class VoicePage(QWidget):
         else:
             self.label.setText(message) # Show the error in the GUI
             self.button.setEnabled(False)
+    @pyqtSlot(dict)
+    def on_profile_changed(self, profile_data):
+        """When the profile changes, re-initialize the worker with new grammar."""
+        print("VoicePage detected profile change. Re-initializing grammar.")
+        keybindings = profile_data.get("keybindings", {})
+        self.vosk_worker.initialize(keybindings)
+    @pyqtSlot()
+    def initialize_worker(self):
+        """Grabs the current keybindings and initializes the worker."""
+    
+        keybindings = self.profile_manager.get_keybindings()
+        
+        self.vosk_worker.initialize(keybindings)
 
 
 
